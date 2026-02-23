@@ -1,0 +1,6 @@
+# Runtime state - these live in ~/.claude/ on the host, not in the repo
+.container-state.json
+.credentials.json
+
+# OS
+.DS_Store
