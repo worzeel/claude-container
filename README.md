@@ -72,3 +72,49 @@ Claude Code will auto-discover the running JetBrains IDE and offer to connect to
 | Auth / login | `claude-code-config` named volume at `~/.claude` |
 | Onboarding / settings | `~/.claude/.container-state.json` bind mounted to `~/.claude.json` |
 | IDE lockfiles | `~/.claude/ide/` bind mounted read-only to `~/.ide-host/` |
+
+## Known issues
+
+### Windows + Podman: network connectivity problems
+
+When running on Windows with Podman, the container may fail to reach the JetBrains IDE on the
+host (`host.containers.internal` times out or refuses connections). The root cause is not fully
+pinned down yet, but there are two leading suspects:
+
+1. **WSL2 ↔ Windows host networking** — Podman on Windows runs inside a WSL2 VM. The virtual
+   network adapter between WSL2 and the Windows host can be flaky, especially after sleep/wake
+   cycles or when Windows Defender Firewall blocks traffic crossing the virtual NIC.
+2. **Podman network backend / DNS settings** — Certain Podman configurations (CNI vs. Netavark
+   backend, the DNS resolver inside the VM, or how `host.containers.internal` is resolved) may
+   not work correctly out of the box on some Windows setups.
+
+**Symptoms**
+
+- Container starts fine but Claude Code cannot connect to the IDE (connection refused / timeout).
+- `CLAUDE_CODE_IDE_HOST_OVERRIDE` is set to `host.containers.internal` but traffic never reaches
+  the plugin.
+- Sometimes works after a full Podman machine restart (`podman machine stop` then
+  `podman machine start`), but not reliably.
+
+**Things to try**
+
+- Verify `host.containers.internal` resolves from inside the container:
+  ```powershell
+  podman exec claude-code ping host.containers.internal
+  ```
+- Check Windows Defender Firewall rules for the WSL virtual NIC (`vEthernet (WSL)`).
+- Try passing a static IP for the Podman WSL2 VM directly:
+  ```powershell
+  # Find the WSL2 VM IP
+  wsl hostname -I
+  # Then override in run.ps1
+  $env:CLAUDE_CODE_IDE_HOST_OVERRIDE = "<wsl-ip>"
+  ```
+- Switch the Podman network backend (CNI → Netavark or vice versa) via
+  `podman system reset` after changing the backend in `~/.config/containers/containers.conf`.
+- Try `podman machine set --rootful` — rootful mode sometimes has better host-routing support.
+- Note: `--network=host` inside Podman on WSL2 binds to the WSL2 VM's network, **not** the
+  Windows host network, so it does not help here.
+
+If you find a reliable fix, please open an issue or PR with the details so this section can be
+updated.
